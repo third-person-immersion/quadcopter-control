@@ -77,6 +77,7 @@ def init():
     oldPosition = None
     oldRegulatedX = 0
     oldRegulatedZ = 0
+    oldRegulatedY = 0
     startTime = time.time()
 
     while True:
@@ -86,19 +87,29 @@ def init():
         deltaT = startTime - newTime
         if (position and oldPosition):
             x = position[0]
-            # y = position[1]
+            y = position[1]
             z = position[2]
             lastX = oldPosition[0]
-            # lastY = oldPosition[1]
+            lastY = oldPosition[1]
             lastZ = oldPosition[2]
             deltaT = startTime - newTime
             regulatedX = regulator.regulateDistance(x, lastX,
                                                     oldRegulatedX, 10, deltaT)
             regulatedZ = regulator.regulateDistance(z, lastZ,
                                                     oldRegulatedZ, 100, deltaT)
+            regulatedY = regulator.regulateDistance(y, lastY,
+                                                    oldRegulatedY, 100, deltaT)
+            # print('X: {0}, Y: {1}, Z: {2}'.format(regulatedX,
+                                                  # regulatedY,
+                                                  # regulatedZ))
+
+            mavproxy.cmd_strafe([regulatedX])
+            mavproxy.cmd_movez([regulatedZ])
+
+            # mavproxy.cmd_setalt([regulatedY])
             oldRegulatedX = regulatedX
             oldRegulatedZ = regulatedZ
-            print('X: {0}, Z: {1}'.format(regulatedX, regulatedZ))
+            oldRegulatedY = regulatedY
             # mavproxy.cmd_strafe([50])
             # THIS IS WHERE WE CONTROL SHIT
 
@@ -298,5 +309,5 @@ def initMAVProxy():
 
 
 if __name__ == '__main__':
-    # initMAVProxy()
+    initMAVProxy()
     init()
