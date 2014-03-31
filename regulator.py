@@ -12,7 +12,7 @@ import mavproxy
 
 DELIMITER_GROUP = str(unichr(29))
 DELIMITER_RECORD = str(unichr(30))
-
+PROCENTZONE = 4 # If feedback is below this procentage, do nothing
 
 class Regulator(object):
     """Reads input from stream (standard implementation is meant for stdin)
@@ -69,11 +69,19 @@ class Regulator(object):
         else:
             return output
 
+    def setalt(self, alt):
+        mavproxy.cmd_setalt([float(alt)])
+        print('setting alt')
+
+
 
 def init():
     # While true read stdin
     regulator = Regulator()
-
+    
+    # SET ALTITUDE HERE. Might not be working properly atm
+    regulator.setalt(2)
+    
     oldPosition = None
     oldRegulatedX = 0
     oldRegulatedZ = 0
@@ -99,17 +107,24 @@ def init():
                                                     oldRegulatedZ, 100, deltaT)
             regulatedY = regulator.regulateDistance(y, lastY,
                                                     oldRegulatedY, 100, deltaT)
-            # print('X: {0}, Y: {1}, Z: {2}'.format(regulatedX,
-                                                  # regulatedY,
-                                                  # regulatedZ))
+            print('X: {0}, Y: {1}, Z: {2}'.format(regulatedX,                                                   regulatedY,                                                   regulatedZ))
+           
+            # If the value is less than procentzone, do nothing
+            # This prevents the regulator from constantly correcting small changes
+            if abs(regulatedX) <= PROCENTZONE:
+                mavproxy.cmd_strafe([0])
+            else:
+                mavproxy.cmd_strafe([regulatedX])
 
-            mavproxy.cmd_strafe([regulatedX])
-            mavproxy.cmd_movez([regulatedZ])
+            if abs(regulatedZ) <= PROCENTZONE:
+                mavproxy.cmd_movez([0])
+            else:
+                mavproxy.cmd_movez([regulatedZ])
 
             # mavproxy.cmd_setalt([regulatedY])
             oldRegulatedX = regulatedX
             oldRegulatedZ = regulatedZ
-            oldRegulatedY = regulatedY
+            oldRegulatedY = regulatedY # Y is not used atm
             # mavproxy.cmd_strafe([50])
             # THIS IS WHERE WE CONTROL SHIT
 
