@@ -88,6 +88,7 @@ def init():
     oldRegulatedY = 0
     startTime = time.time()
 
+    time.sleep(5)
     while True:
         (position, angle) = regulator.parse(regulator.stream.readline())
 
@@ -268,16 +269,16 @@ def initMAVProxy():
     mpstate.settings.streamrate = opts.streamrate
     mpstate.settings.streamrate2 = opts.streamrate
 
-    msg_period = mavutil.periodic_event(1.0/15)
-    param_period = mavutil.periodic_event(1)
-    log_period = mavutil.periodic_event(2)
-    heartbeat_period = mavutil.periodic_event(1)
-    battery_period = mavutil.periodic_event(0.1)
+    mavproxy.msg_period = mavutil.periodic_event(1.0/15)
+    mavproxy.param_period = mavutil.periodic_event(1)
+    mavproxy.log_period = mavutil.periodic_event(2)
+    mavproxy.heartbeat_period = mavutil.periodic_event(1)
+    mavproxy.battery_period = mavutil.periodic_event(0.1)
     if mpstate.sitl_output:
         mpstate.override_period = mavutil.periodic_event(20)
     else:
         mpstate.override_period = mavutil.periodic_event(1)
-    heartbeat_check_period = mavutil.periodic_event(0.33)
+    mavproxy.heartbeat_check_period = mavutil.periodic_event(0.33)
 
     mpstate.rl = rline.rline("MAV> ")
     if opts.setup:
