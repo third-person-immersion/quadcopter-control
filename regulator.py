@@ -1,4 +1,6 @@
 #!/usr/bin/python
+# -*- coding: utf-8 -*-
+
 import sys
 import os
 import time
@@ -13,6 +15,7 @@ import mavproxy
 DELIMITER_GROUP = str(unichr(29))
 DELIMITER_RECORD = str(unichr(30))
 PROCENTZONE = 4 # If feedback is below this procentage, do nothing
+MIN_SURENESS = 0.30 #Don't use values if they are not more than 30 % sure
 
 class Regulator(object):
     """Reads input from stream (standard implementation is meant for stdin)
@@ -27,7 +30,8 @@ class Regulator(object):
         # X, Y, Z positions in 3D space
         self.lastPosition = [None, None, None]
 
-        self.boundary = 100
+        #Maximum allowed speed of the Quadcopter
+        self.boundary = 50
 
     def toFloats(self, array):
         for index, s in enumerate(array):
@@ -38,7 +42,7 @@ class Regulator(object):
     def parse(self, line):
         groups = line.split(DELIMITER_GROUP)
 
-        # Scream for help
+        # Scream for help, lol
         if (len(groups) < 1):
             raise Exception('Invalid input sent to regulator, no groups found')
 
@@ -51,13 +55,20 @@ class Regulator(object):
         else:
             # Set default value null
             angle = None
+            
+        # Read sureness
+        if (len(groups) > 0):
+            sureness = self.toFloats(groups.pop(0).split(DELIMITER_RECORD))
+        else:
+            # Set default value null
+            sureness = None
 
         # Scream for help, someone is drowning us in input
         if (len(groups) > 0):
             raise Exception('Invalid input sent to regulator, \
                             too many groups found')
 
-        return (position, angle)
+        return (position, angle, sureness)
 
     def regulateDistance(self, distance, prevDistance, prevOutput, ref, deltaT):
         error = distance - ref
@@ -73,7 +84,13 @@ class Regulator(object):
         mavproxy.cmd_setalt([float(alt)])
         print('setting alt')
 
-
+def median(list):
+    list = sorted(list)
+    if len(list)%2 == 0:
+        b = len(list)/2
+        a = b - 1
+        return (list[a] + list[b])/2
+    return list[len(list)/2]
 
 def init():
     # While true read stdin
@@ -86,15 +103,52 @@ def init():
     oldRegulatedX = 0
     oldRegulatedZ = 0
     oldRegulatedY = 0
+    
+    positions = []
+    angles = []
+    times = []
+    
     startTime = time.time()
 
     time.sleep(5)
     while True:
-        (position, angle) = regulator.parse(regulator.stream.readline())
-
-        newTime = time.time()
-        deltaT = startTime - newTime
-        if (position and oldPosition):
+    
+        for i in range(0, 5):
+            (position, angle, sureness) = regulator.parse(regulator.stream.readline())
+            
+            newTime = time.time()
+            deltaT = startTime - newTime
+            
+            if sureness >= MIN_SURENESS:
+                positions += [position]
+                angles += [angle]
+                times += deltaT
+                
+        
+        if (position and oldPosition and len(positions) >= 3):
+            
+            posXs = []
+            posYz = []
+            posZs = []
+            
+            for i in positions:
+                posXs += i[0]
+                posYs += i[1]
+                posZs += i[2]
+                
+            angX = []
+            angY = []
+            angZ = []
+            
+            for i in angles:
+                angX += i[0]
+                angY += i[1]
+                angZ += i[2]
+            
+            position = [median(posXs), median(posYs), median(posZs)]
+            angle = [median(angX), median(angY), median(angZ)]
+            deltaT = median(times)
+        
             x = position[0]
             y = position[1]
             z = position[2]
@@ -103,15 +157,19 @@ def init():
             lastZ = oldPosition[2]
             deltaT = startTime - newTime
             regulatedX = regulator.regulateDistance(x, lastX,
-                                                    oldRegulatedX, 10, deltaT)
-            regulatedZ = regulator.regulateDistance(z, lastZ,
-                                                    oldRegulatedZ, 100, deltaT)
+                                                    oldRegulatedX, 0, deltaT)
             regulatedY = regulator.regulateDistance(y, lastY,
-                                                    oldRegulatedY, 100, deltaT)
-            print('X: {0}, Y: {1}, Z: {2}'.format(regulatedX,                                                   regulatedY,                                                   regulatedZ))
+                                                    oldRegulatedY, 0, deltaT)
+            #Borde vara en konstant istället, alternativt en parameter in ttill programmet
+            regulatedZ = regulator.regulateDistance(z, lastZ,
+                                                    oldRegulatedZ, 250, deltaT)
+            print('X: {0}, Y: {1}, Z: {2}, S: {3}'.format(regulatedX, regulatedY, regulatedZ, sureness))
            
+            #Ändrat av Jacob: Håller inte alls med här, detta är vad en regulator är till för
+            #   Om det är små värden så visst, då kommer Quadcoptern röra sig lite/inte alls :)
             # If the value is less than procentzone, do nothing
             # This prevents the regulator from constantly correcting small changes
+            """
             if abs(regulatedX) <= PROCENTZONE:
                 mavproxy.cmd_strafe([0])
             else:
@@ -121,8 +179,11 @@ def init():
                 mavproxy.cmd_movez([0])
             else:
                 mavproxy.cmd_movez([regulatedZ])
-
+            """
+            mavproxy.cmd_strafe([regulatedX])
+            mavproxy.cmd_movez([regulatedZ])
             # mavproxy.cmd_setalt([regulatedY])
+            
             oldRegulatedX = regulatedX
             oldRegulatedZ = regulatedZ
             oldRegulatedY = regulatedY # Y is not used atm
@@ -325,5 +386,5 @@ def initMAVProxy():
 
 
 if __name__ == '__main__':
-    initMAVProxy()
+    #initMAVProxy()
     init()
