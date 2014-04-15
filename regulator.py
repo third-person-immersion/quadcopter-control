@@ -189,6 +189,9 @@ def init():
             oldRegulatedY = regulatedY # Y is not used atm
             # mavproxy.cmd_strafe([50])
             # THIS IS WHERE WE CONTROL SHIT
+        else:
+            mavproxy.cmd_strafe([0])
+            mavproxy.cmd_movez([0])
 
         oldPosition = position
         startTime = newTime
@@ -386,5 +389,5 @@ def initMAVProxy():
 
 
 if __name__ == '__main__':
-    #initMAVProxy()
+    initMAVProxy()
     init()
