@@ -15,7 +15,7 @@ import mavproxy
 DELIMITER_GROUP = str(unichr(29))
 DELIMITER_RECORD = str(unichr(30))
 PROCENTZONE = 4 # If feedback is below this procentage, do nothing
-MIN_SURENESS = 0.30 #Don't use values if they are not more than 30 % sure
+MIN_SURENESS = 0.60 #Don't use values if they are not more than 60 % sure
 
 class Regulator(object):
     """Reads input from stream (standard implementation is meant for stdin)
