@@ -97,7 +97,7 @@ def init():
     regulator = Regulator()
     
     # SET ALTITUDE HERE. Might not be working properly atm
-    regulator.setalt(2)
+    #regulator.setalt(2)
     
     oldPosition = None
     oldRegulatedX = 0
@@ -180,8 +180,10 @@ def init():
             else:
                 mavproxy.cmd_movez([regulatedZ])
             """
-            mavproxy.cmd_strafe([regulatedX])
-            mavproxy.cmd_movez([regulatedZ])
+            mavproxy.mpstate.functions.process_stdin("strafe %d" % regulatedX)
+            mavproxy.mpstate.functions.process_stdin("movez %d" % regulatedZ)
+           # mavproxy.cmd_strafe([regulatedX])
+           # mavproxy.cmd_movez([regulatedZ])
             # mavproxy.cmd_setalt([regulatedY])
             
             oldRegulatedX = regulatedX
@@ -190,21 +192,27 @@ def init():
             # mavproxy.cmd_strafe([50])
             # THIS IS WHERE WE CONTROL SHIT
         else:
-            mavproxy.cmd_strafe([0])
-            mavproxy.cmd_movez([0])
+            mavproxy.mpstate.functions.process_stdin("strafe 0")
+            mavproxy.mpstate.functions.process_stdin("movez 0")
+            #mavproxy.cmd_strafe([0])
+           # mavproxy.cmd_movez([0])
 
         oldPosition = position
         startTime = newTime
 
 
 def initMAVProxy():
+    from optparse import OptionParser
     parser = OptionParser("mavproxy.py [options]")
 
-    parser.add_option("--master",dest="master", action='append', help="MAVLink master port", default=[])
+    parser.add_option("--master", dest="master", action='append',
+                      metavar="DEVICE[,BAUD]", help="MAVLink master port and optional baud rate",
+                      default=[])
+    parser.add_option("--out", dest="output", action='append',
+                      metavar="DEVICE[,BAUD]", help="MAVLink output port and optional baud rate",
+                      default=[])
     parser.add_option("--baudrate", dest="baudrate", type='int',
-                      help="master port baud rate", default=115200)
-    parser.add_option("--out",   dest="output", help="MAVLink output port",
-                      action='append', default=[])
+                      help="default serial baud rate", default=115200)
     parser.add_option("--sitl", dest="sitl",  default=None, help="SITL output port")
     parser.add_option("--streamrate",dest="streamrate", default=4, type='int',
                       help="MAVLink stream rate")
@@ -247,16 +255,16 @@ def initMAVProxy():
     parser.add_option("--rtscts",  action='store_true', help="enable hardware RTS/CTS flow control")
 
     (opts, args) = parser.parse_args()
-    mavproxy.opts = opts
+    mavproxy.opts=opts
 
     if opts.mav09:
         os.environ['MAVLINK09'] = '1'
-    from pymavlink import mavutil, mavwp, mavparm
+    from pymavlink import mavutil, mavparm
     mavutil.set_dialect(opts.dialect)
 
     # global mavproxy state
     mpstate = MPState()
-    mavproxy.mpstate = mpstate
+    mavproxy.mpstate=mpstate
     mpstate.status.exit = False
     mpstate.command_map = command_map
     mpstate.continue_mode = opts.continue_mode
@@ -264,7 +272,7 @@ def initMAVProxy():
     if opts.speech:
         # start the speech-dispatcher early, so it doesn't inherit any ports from
         # modules/mavutil
-        say('Startup')
+        load_module('speech')
 
     if not opts.master:
         serial_list = mavutil.auto_detect_serial(preferred_list=['*FTDI*',"*Arduino_Mega_2560*", "*3D_Robotics*", "*USB_to_UART*"])
@@ -272,14 +280,14 @@ def initMAVProxy():
             opts.master = [serial_list[0].device]
         else:
             print('''
-    Please choose a MAVLink master with --master
-    For example:
+Please choose a MAVLink master with --master
+For example:
     --master=com14
     --master=/dev/ttyUSB0
     --master=127.0.0.1:14550
 
-    Auto-detected serial ports are:
-    ''')
+Auto-detected serial ports are:
+''')
             for port in serial_list:
                 print("%s" % port)
             sys.exit(1)
@@ -292,7 +300,12 @@ def initMAVProxy():
 
     # open master link
     for mdev in opts.master:
-        m = mavutil.mavlink_connection(mdev, autoreconnect=True, baud=opts.baudrate)
+        if ',' in mdev and not os.path.exists(mdev):
+            port, baud = mdev.split(',')
+        else:
+            port, baud = mdev, opts.baudrate
+
+        m = mavutil.mavlink_connection(port, autoreconnect=True, baud=int(baud))
         m.mav.set_callback(master_callback, m)
         if hasattr(m.mav, 'set_send_callback'):
             m.mav.set_send_callback(master_send_callback, m)
@@ -310,41 +323,28 @@ def initMAVProxy():
     # log all packets from the master, for later replay
     open_logs()
 
-    if mpstate.continue_mode and mpstate.status.logdir != None:
-        parmfile = os.path.join(mpstate.status.logdir, 'mav.parm')
-        if os.path.exists(parmfile):
-            mpstate.mav_param.load(parmfile)
-            for m in mpstate.mav_master:
-                m.param_fetch_complete = True
-        waytxt = os.path.join(mpstate.status.logdir, 'way.txt')
-        if os.path.exists(waytxt):
-            mpstate.status.wploader.load(waytxt)
-            print("Loaded waypoints from %s" % waytxt)
-
     # open any mavlink UDP ports
     for p in opts.output:
-        mpstate.mav_outputs.append(mavutil.mavlink_connection(p, baud=opts.baudrate, input=False))
+        if ',' in p and not os.path.exists(p):
+            port, baud = p.split(',')            
+        else:
+            port, baud = p, opts.baudrate
+
+        mpstate.mav_outputs.append(mavutil.mavlink_connection(port, baud=int(baud), input=False))
 
     if opts.sitl:
         mpstate.sitl_output = mavutil.mavudp(opts.sitl, input=False)
 
     mpstate.settings.numcells = opts.num_cells
-    mpstate.settings.speech = opts.speech
     mpstate.settings.streamrate = opts.streamrate
     mpstate.settings.streamrate2 = opts.streamrate
 
     mavproxy.msg_period = mavutil.periodic_event(1.0/15)
-    mavproxy.param_period = mavutil.periodic_event(1)
-    mavproxy.log_period = mavutil.periodic_event(2)
     mavproxy.heartbeat_period = mavutil.periodic_event(1)
     mavproxy.battery_period = mavutil.periodic_event(0.1)
-    if mpstate.sitl_output:
-        mpstate.override_period = mavutil.periodic_event(20)
-    else:
-        mpstate.override_period = mavutil.periodic_event(1)
     mavproxy.heartbeat_check_period = mavutil.periodic_event(0.33)
 
-    mpstate.rl = rline.rline("MAV> ")
+    mpstate.rl = rline.rline("MAV> ", mpstate)
     if opts.setup:
         mpstate.rl.set_prompt("")
 
@@ -362,9 +362,10 @@ def initMAVProxy():
 
     if not opts.setup:
         # some core functionality is in modules
-        standard_modules = ['log','rally','fence']
+        standard_modules = ['log','rally','fence','param','relay',
+                            'tuneopt','arm','mode','calibration','rc','wp','auxopt','quadcontrols','test']
         for m in standard_modules:
-            process_stdin('module load %s' % m)
+            load_module(m, quiet=True)
 
     if opts.console:
         process_stdin('module load console')
@@ -382,7 +383,7 @@ def initMAVProxy():
         for c in cmds:
             process_stdin(c)
 
-    # run main loop as a thread
+# run main loop as a thread
     mpstate.status.thread = threading.Thread(target=main_loop)
     mpstate.status.thread.daemon = True
     mpstate.status.thread.start()
