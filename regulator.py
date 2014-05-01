@@ -14,7 +14,7 @@ import mavproxy
 
 DELIMITER_GROUP = str(unichr(29))
 DELIMITER_RECORD = str(unichr(30))
-PROCENTZONE = 4 # If feedback is below this procentage, do nothing
+#PROCENTZONE = 4 # If feedback is below this procentage, do nothing
 MIN_SURENESS = 0.60 #Don't use values if they are not more than 60 % sure
 
 class Regulator(object):
@@ -110,95 +110,100 @@ def init():
     
     startTime = time.time()
 
-    time.sleep(5)
+    time.sleep(6)
+
+    # COMPUTER CONTROL STARTS HERE, microcontroller no longer has any effect
+
+    mavproxy.mpstate.functions.process_stdin("hover") # Initialize by setting all sticks to middle and enter alt_hold mode
+    time.sleep(3) 
+
     while True:
-    
-        for i in range(0, 5):
-            (position, angle, sureness) = regulator.parse(regulator.stream.readline())
+        try:
+            for i in range(0, 5):
+                (position, angle, sureness) = regulator.parse(regulator.stream.readline())
             
-            newTime = time.time()
-            deltaT = startTime - newTime
+                newTime = time.time()
+                deltaT = startTime - newTime
             
-            if sureness >= MIN_SURENESS:
-                positions += [position]
-                angles += [angle]
-                times += deltaT
+                if sureness >= MIN_SURENESS:
+                    positions += [position]
+                    angles += [angle]
+                    times += deltaT
                 
         
-        if (position and oldPosition and len(positions) >= 3):
+            if (position and oldPosition and len(positions) >= 3):
             
-            posXs = []
-            posYz = []
-            posZs = []
+                posXs = []
+                posYz = []
+                posZs = []
             
-            for i in positions:
-                posXs += i[0]
-                posYs += i[1]
-                posZs += i[2]
+                for i in positions:
+                    posXs += i[0]
+                    posYs += i[1]
+                    posZs += i[2]
                 
-            angX = []
-            angY = []
-            angZ = []
+                angX = []
+                angY = []
+                angZ = []
             
-            for i in angles:
-                angX += i[0]
-                angY += i[1]
-                angZ += i[2]
+                for i in angles:
+                    angX += i[0]
+                    angY += i[1]
+                    angZ += i[2]
             
-            position = [median(posXs), median(posYs), median(posZs)]
-            angle = [median(angX), median(angY), median(angZ)]
-            deltaT = median(times)
+                position = [median(posXs), median(posYs), median(posZs)]
+                angle = [median(angX), median(angY), median(angZ)]
+                deltaT = median(times)
         
-            x = position[0]
-            y = position[1]
-            z = position[2]
-            lastX = oldPosition[0]
-            lastY = oldPosition[1]
-            lastZ = oldPosition[2]
-            deltaT = startTime - newTime
-            regulatedX = regulator.regulateDistance(x, lastX,
-                                                    oldRegulatedX, 0, deltaT)
-            regulatedY = regulator.regulateDistance(y, lastY,
-                                                    oldRegulatedY, 0, deltaT)
-            #Borde vara en konstant istället, alternativt en parameter in ttill programmet
-            regulatedZ = regulator.regulateDistance(z, lastZ,
-                                                    oldRegulatedZ, 250, deltaT)
-            print('X: {0}, Y: {1}, Z: {2}, S: {3}'.format(regulatedX, regulatedY, regulatedZ, sureness))
+                x = position[0]
+                y = position[1]
+                z = position[2]
+                lastX = oldPosition[0]
+                lastY = oldPosition[1]
+                lastZ = oldPosition[2]
+                deltaT = startTime - newTime
+                regulatedX = regulator.regulateDistance(x, lastX,
+                                                        oldRegulatedX, 0, deltaT)
+                regulatedY = regulator.regulateDistance(y, lastY,
+                                                        oldRegulatedY, 0, deltaT)
+                #Borde vara en konstant istället, alternativt en parameter in ttill programmet
+                regulatedZ = regulator.regulateDistance(z, lastZ,
+                                                        oldRegulatedZ, 250, deltaT)
+                print('X: {0}, Y: {1}, Z: {2}, S: {3}'.format(regulatedX, regulatedY, regulatedZ, sureness))
            
-            #Ändrat av Jacob: Håller inte alls med här, detta är vad en regulator är till för
-            #   Om det är små värden så visst, då kommer Quadcoptern röra sig lite/inte alls :)
-            # If the value is less than procentzone, do nothing
-            # This prevents the regulator from constantly correcting small changes
-            """
-            if abs(regulatedX) <= PROCENTZONE:
-                mavproxy.cmd_strafe([0])
-            else:
-                mavproxy.cmd_strafe([regulatedX])
+                #Ändrat av Jacob: Håller inte alls med här, detta är vad en regulator är till för
+                #   Om det är små värden så visst, då kommer Quadcoptern röra sig lite/inte alls :)
+                # If the value is less than procentzone, do nothing
+                # This prevents the regulator from constantly correcting small changes
+                """
+                if abs(regulatedX) <= PROCENTZONE:
+                    mavproxy.cmd_strafe([0])
+                else:
+                    mavproxy.cmd_strafe([regulatedX])
 
-            if abs(regulatedZ) <= PROCENTZONE:
-                mavproxy.cmd_movez([0])
-            else:
-                mavproxy.cmd_movez([regulatedZ])
-            """
-            mavproxy.mpstate.functions.process_stdin("strafe %d" % regulatedX)
-            mavproxy.mpstate.functions.process_stdin("movez %d" % regulatedZ)
-           # mavproxy.cmd_strafe([regulatedX])
-           # mavproxy.cmd_movez([regulatedZ])
-            # mavproxy.cmd_setalt([regulatedY])
+                if abs(regulatedZ) <= PROCENTZONE:
+                    mavproxy.cmd_movez([0])
+                else:
+                    mavproxy.cmd_movez([regulatedZ])
+                """
+                mavproxy.mpstate.functions.process_stdin("strafe %d" % regulatedX)
+                mavproxy.mpstate.functions.process_stdin("movez %d" % regulatedZ) 
             
-            oldRegulatedX = regulatedX
-            oldRegulatedZ = regulatedZ
-            oldRegulatedY = regulatedY # Y is not used atm
-            # mavproxy.cmd_strafe([50])
-            # THIS IS WHERE WE CONTROL SHIT
-        else:
-            mavproxy.mpstate.functions.process_stdin("strafe 0")
-            mavproxy.mpstate.functions.process_stdin("movez 0")
-            #mavproxy.cmd_strafe([0])
-           # mavproxy.cmd_movez([0])
-
-        oldPosition = position
-        startTime = newTime
+                oldRegulatedX = regulatedX
+                oldRegulatedZ = regulatedZ
+                oldRegulatedY = regulatedY # Y is not used atm
+            else:
+                mavproxy.mpstate.functions.process_stdin("strafe 0")
+                mavproxy.mpstate.functions.process_stdin("movez 0")
+    
+            oldPosition = position
+            startTime = newTime
+        except KeyboardInterrupt:
+            # This happends when Ctrl-C is pressed
+            print("Giving control back to microcontroller...")
+            mavproxy.mpstate.functions.process_stdin("rc all 0")
+            time.sleep(2)
+            print("Exiting...")
 
 
 def initMAVProxy():
