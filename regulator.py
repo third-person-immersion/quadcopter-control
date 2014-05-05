@@ -84,6 +84,33 @@ class Regulator(object):
         mavproxy.cmd_setalt([float(alt)])
         print('setting alt')
 
+goalAltitude=-1
+sweetSpot=0.5
+
+# Check if the altitude is good once a second, runs in a seperate thread
+def checkAlt():
+    global goalAltitude
+    global sweetSpot
+    while True:
+        if goalAltitude != -1:
+            alt=float(mavproxy.mpstate.status.altitude)
+            if (abs(goalAltitude-alt)>sweetSpot):
+                if (alt < goalAltitude):
+                    print("Altitude too low, adjusting...")
+                    mavproxy.mpstate.functions.process_stdin("rc 3 1800")
+                elif (alt > goalAltitude):
+                    print("Altitude too high, adjusting...")
+                    mavproxy.mpstate.functions.process_stdin("rc 3 1200")
+        time.sleep(0.5)
+        
+def setalt(altitude):
+    global goalAltitude
+    if (altitude < 0):
+        print("Altitude needs to be higher than 0")
+    else:
+        goalAltitude=altitude
+        print("New altitude set")
+
 def median(list):
     list = sorted(list)
     if len(list)%2 == 0:
@@ -96,8 +123,8 @@ def init():
     # While true read stdin
     regulator = Regulator()
     
-    # SET ALTITUDE HERE. Might not be working properly atm
-    #regulator.setalt(2)
+    # SET ALTITUDE HERE.
+    setalt(2)
     
     oldPosition = None
     oldRegulatedX = 0
@@ -109,10 +136,18 @@ def init():
     times = []
     
     startTime = time.time()
-
-    time.sleep(6)
-
+    
     # COMPUTER CONTROL STARTS HERE, microcontroller no longer has any effect
+    
+    time.sleep(5)
+
+    print("Altitude thread starting...")
+    t1 = threading.Thread(target=checkAlt)
+    t1.daemon = True
+    t1.start()
+    print("Altitude thread started")
+
+    time.sleep(1)
 
     mavproxy.mpstate.functions.process_stdin("hover") # Initialize by setting all sticks to middle and enter alt_hold mode
     time.sleep(3) 
@@ -128,28 +163,28 @@ def init():
                 if sureness >= MIN_SURENESS:
                     positions += [position]
                     angles += [angle]
-                    times += deltaT
+                    times += [deltaT]
                 
         
             if (position and oldPosition and len(positions) >= 3):
             
                 posXs = []
-                posYz = []
+                posYs = []
                 posZs = []
             
                 for i in positions:
-                    posXs += i[0]
-                    posYs += i[1]
-                    posZs += i[2]
+                    posXs += [i[0]]
+                    posYs += [i[1]]
+                    posZs += [i[2]]
                 
                 angX = []
                 angY = []
                 angZ = []
             
                 for i in angles:
-                    angX += i[0]
-                    angY += i[1]
-                    angZ += i[2]
+                    angX += [i[0]]
+                    angY += [i[1]]
+                    angZ += [i[2]]
             
                 position = [median(posXs), median(posYs), median(posZs)]
                 angle = [median(angX), median(angY), median(angZ)]
@@ -188,7 +223,9 @@ def init():
                 """
                 mavproxy.mpstate.functions.process_stdin("strafe %d" % regulatedX)
                 mavproxy.mpstate.functions.process_stdin("movez %d" % regulatedZ) 
-            
+                
+                positions=positions[-3:]
+
                 oldRegulatedX = regulatedX
                 oldRegulatedZ = regulatedZ
                 oldRegulatedY = regulatedY # Y is not used atm
