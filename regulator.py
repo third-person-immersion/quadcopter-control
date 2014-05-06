@@ -15,13 +15,17 @@ import mavproxy
 DELIMITER_GROUP = str(unichr(29))
 DELIMITER_RECORD = str(unichr(30))
 #PROCENTZONE = 4 # If feedback is below this procentage, do nothing
-MIN_SURENESS = 0.15 #Don't use values if they are not more than 60 % sure
+MIN_SURENESS = 0.4 #Don't use values if they are not more than 40 % sure
+goalAltitude=-1
+sweetSpot=0.5
+# in cm
+DESIRED_DISTANCE_Z = 200
 
 class Regulator(object):
     """Reads input from stream (standard implementation is meant for stdin)
     and converts relative positions into a command sent to MAVProxy
     for quadcopter control"""
-    def __init__(self, stream=sys.stdin, kp=0.06, ki=0):
+    def __init__(self, stream=sys.stdin, kp=0.2, ki=0):
         super(Regulator, self).__init__()
         self.stream = stream
         self.kp = kp
@@ -87,8 +91,7 @@ class Regulator(object):
         mavproxy.cmd_setalt([float(alt)])
         print('setting alt')
 
-goalAltitude=-1
-sweetSpot=0.5
+
 
 
 # Check if the altitude is good once a second, runs in a seperate thread
@@ -116,6 +119,7 @@ def setalt(altitude):
     goalAltitude=altitude
     print("New altitude set")
 
+    
 def median(list):
     list = sorted(list)
     if len(list)%2 == 0:
@@ -124,6 +128,39 @@ def median(list):
         return (list[a] + list[b])/2
     return list[len(list)/2]
 
+def getData(positionArray, anglesArray, timesArray):
+    position = None
+    angle = None
+    deltaT = None
+    if(positionArray):
+        posXs = []
+        posYs = []
+        posZs = []
+
+        for i in positionArray:
+            posXs += [i[0]]
+            posYs += [i[1]]
+            posZs += [i[2]]
+            
+        position = [median(posXs), median(posYs), median(posZs)]
+            
+    if(anglesArray):
+        angX = []
+        angY = []
+        angZ = []
+
+        for i in anglesArray:
+            angX += [i[0]]
+            angY += [i[1]]
+            angZ += [i[2]]
+            
+        angle = [median(angX), median(angY), median(angZ)]
+
+    if(timesArray):
+        deltaT = median(times)
+    
+    return (position, angle, deltaT)
+    
 def init():
     # While true read stdin
     regulator = Regulator()
@@ -171,29 +208,11 @@ def init():
                     times += [deltaT]
                 
         
-            if (position and oldPosition and len(positions) >= 3):
+            #If we have any values on "oldPosition" and we have
+            #  at least three positions
+            if (oldPosition and len(positions) >= 3):
             
-                posXs = []
-                posYs = []
-                posZs = []
-            
-                for i in positions:
-                    posXs += [i[0]]
-                    posYs += [i[1]]
-                    posZs += [i[2]]
-                
-                angX = []
-                angY = []
-                angZ = []
-            
-                for i in angles:
-                    angX += [i[0]]
-                    angY += [i[1]]
-                    angZ += [i[2]]
-            
-                position = [median(posXs), median(posYs), median(posZs)]
-                angle = [median(angX), median(angY), median(angZ)]
-                deltaT = median(times)
+                (position, angle, deltaT) = getData(positions, angles, times)
         
                 x = position[0]
                 y = position[1]
@@ -208,7 +227,7 @@ def init():
                                                         oldRegulatedY, 0, deltaT)
                 #Borde vara en konstant istället, alternativt en parameter in ttill programmet
                 regulatedZ = regulator.regulateDistance(z, lastZ,
-                                                        oldRegulatedZ, 250, deltaT)
+                                                        oldRegulatedZ, DESIRED_DISTANCE_Z, deltaT)
                 print('X: {0}, Y: {1}, Z: {2}, S: {3}'.format(regulatedX, regulatedY, regulatedZ, sureness))
            
                 #Ändrat av Jacob: Håller inte alls med här, detta är vad en regulator är till för
@@ -226,18 +245,30 @@ def init():
                 else:
                     mavproxy.cmd_movez([regulatedZ])
                 """
+                #Send data for X to the copter
                 mavproxy.mpstate.functions.process_stdin("strafe %d" % regulatedX)
+                #Send data for Y to the copter
+                mavproxy.mpstate.functions.process_stdin("strafe %d" % regulatedY)
+                #Send data for Z to the copter
                 mavproxy.mpstate.functions.process_stdin("movez %d" % regulatedZ) 
                 
-                positions=positions[-3:]
+                #Näää killar, va fan försöker ni med här!? :P
+                #positions=positions[-3:]
+                
 
                 oldRegulatedX = regulatedX
                 oldRegulatedZ = regulatedZ
-                oldRegulatedY = regulatedY # Y is not used atm
+                oldRegulatedY = regulatedY
             else:
+                (position, angle, deltaT) = getData(positions, angles, times)
                 mavproxy.mpstate.functions.process_stdin("strafe 0")
                 mavproxy.mpstate.functions.process_stdin("movez 0")
     
+            #Clear any old data
+            positions = []
+            angles = []
+            times = []
+            
             oldPosition = position
             startTime = newTime
         except KeyboardInterrupt:
