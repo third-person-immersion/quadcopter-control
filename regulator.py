@@ -15,13 +15,13 @@ import mavproxy
 DELIMITER_GROUP = str(unichr(29))
 DELIMITER_RECORD = str(unichr(30))
 #PROCENTZONE = 4 # If feedback is below this procentage, do nothing
-MIN_SURENESS = 0.60 #Don't use values if they are not more than 60 % sure
+MIN_SURENESS = 0.15 #Don't use values if they are not more than 60 % sure
 
 class Regulator(object):
     """Reads input from stream (standard implementation is meant for stdin)
     and converts relative positions into a command sent to MAVProxy
     for quadcopter control"""
-    def __init__(self, stream=sys.stdin, kp=0.2, ki=0.2):
+    def __init__(self, stream=sys.stdin, kp=0.06, ki=0):
         super(Regulator, self).__init__()
         self.stream = stream
         self.kp = kp
@@ -31,7 +31,7 @@ class Regulator(object):
         self.lastPosition = [None, None, None]
 
         #Maximum allowed speed of the Quadcopter
-        self.boundary = 50
+        self.boundary = 10
 
     def toFloats(self, array):
         for index, s in enumerate(array):
@@ -58,11 +58,14 @@ class Regulator(object):
             
         # Read sureness
         if (len(groups) > 0):
-            sureness = self.toFloats(groups.pop(0).split(DELIMITER_RECORD))
+            sureness = float(groups.pop(0))
+            #self.toFloats(groups.pop(0).split(DELIMITER_RECORD))
         else:
             # Set default value null
             sureness = None
-
+            raise Exception('det funkar INTE')
+        
+        print(sureness)
         # Scream for help, someone is drowning us in input
         if (len(groups) > 0):
             raise Exception('Invalid input sent to regulator, \
@@ -87,11 +90,13 @@ class Regulator(object):
 goalAltitude=-1
 sweetSpot=0.5
 
+
 # Check if the altitude is good once a second, runs in a seperate thread
 def checkAlt():
     global goalAltitude
     global sweetSpot
     while True:
+        time.sleep(0.5)
         if goalAltitude != -1:
             alt=float(mavproxy.mpstate.status.altitude)
             if (abs(goalAltitude-alt)>sweetSpot):
@@ -101,15 +106,15 @@ def checkAlt():
                 elif (alt > goalAltitude):
                     print("Altitude too high, adjusting...")
                     mavproxy.mpstate.functions.process_stdin("rc 3 1200")
-        time.sleep(0.5)
+        
         
 def setalt(altitude):
     global goalAltitude
-    if (altitude < 0):
-        print("Altitude needs to be higher than 0")
-    else:
-        goalAltitude=altitude
-        print("New altitude set")
+    #if (altitude < 0):
+    #    print("Altitude needs to be higher than 0")
+    #else:
+    goalAltitude=altitude
+    print("New altitude set")
 
 def median(list):
     list = sorted(list)
@@ -139,7 +144,7 @@ def init():
     
     # COMPUTER CONTROL STARTS HERE, microcontroller no longer has any effect
     
-    time.sleep(5)
+    time.sleep(1)
 
     print("Altitude thread starting...")
     t1 = threading.Thread(target=checkAlt)
@@ -150,7 +155,7 @@ def init():
     time.sleep(1)
 
     mavproxy.mpstate.functions.process_stdin("hover") # Initialize by setting all sticks to middle and enter alt_hold mode
-    time.sleep(3) 
+    time.sleep(2) 
 
     while True:
         try:
@@ -159,7 +164,7 @@ def init():
             
                 newTime = time.time()
                 deltaT = startTime - newTime
-            
+                #sureness=100 
                 if sureness >= MIN_SURENESS:
                     positions += [position]
                     angles += [angle]
@@ -237,9 +242,13 @@ def init():
             startTime = newTime
         except KeyboardInterrupt:
             # This happends when Ctrl-C is pressed
+            setalt(-1)
             print("Giving control back to microcontroller...")
             mavproxy.mpstate.functions.process_stdin("rc all 0")
-            time.sleep(2)
+            mavproxy.mpstate.functions.process_stdin("mode stabilize")            
+            time.sleep(0.6)
+            mavproxy.mpstate.functions.process_stdin("rc all 0")
+            mavproxy.mpstate.functions.process_stdin("mode stabilize")            
             print("Exiting...")
 
 
