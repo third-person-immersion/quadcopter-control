@@ -20,6 +20,7 @@ goalAltitude=-1
 sweetSpot=0.5
 # in cm
 DESIRED_DISTANCE_Z = 200
+SWEETSPOT_Y = 0.5
 
 class Regulator(object):
     """Reads input from stream (standard implementation is meant for stdin)
@@ -86,6 +87,15 @@ class Regulator(object):
             return math.copysign(self.boundary, output)
         else:
             return output
+            
+    def regulateHeight(self, distance, ref):
+        output = 0
+        if(distance >= ref):
+            output = -0.47
+        elif(distance <= -ref :
+            output = 0.47
+        
+        return output
 
     def setalt(self, alt):
         mavproxy.cmd_setalt([float(alt)])
@@ -223,8 +233,7 @@ def init():
                 deltaT = startTime - newTime
                 regulatedX = regulator.regulateDistance(x, lastX,
                                                         oldRegulatedX, 0, deltaT)
-                regulatedY = regulator.regulateDistance(y, lastY,
-                                                        oldRegulatedY, 0, deltaT)
+                regulatedY = regulator.regulateHeight(y, lastY, SWEETSPOT_Y)
                 #Borde vara en konstant istället, alternativt en parameter in ttill programmet
                 regulatedZ = regulator.regulateDistance(z, lastZ,
                                                         oldRegulatedZ, DESIRED_DISTANCE_Z, deltaT)
@@ -248,7 +257,7 @@ def init():
                 #Send data for X to the copter
                 mavproxy.mpstate.functions.process_stdin("strafe %d" % regulatedX)
                 #Send data for Y to the copter
-                mavproxy.mpstate.functions.process_stdin("strafe %d" % regulatedY)
+                mavproxy.mpstate.functions.process_stdin("movey %d" % regulatedY)
                 #Send data for Z to the copter
                 mavproxy.mpstate.functions.process_stdin("movez %d" % regulatedZ) 
                 
