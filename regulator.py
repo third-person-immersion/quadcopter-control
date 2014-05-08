@@ -5,6 +5,7 @@ import sys
 import os
 import time
 import math
+import datetime
 from optparse import OptionParser
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'MAVProxy/MAVProxy'))
@@ -16,9 +17,9 @@ DELIMITER_GROUP = str(unichr(29))
 DELIMITER_RECORD = str(unichr(30))
 #PROCENTZONE = 4 # If feedback is below this procentage, do nothing
 MIN_SURENESS = 0.4 #Don't use values if they are not more than 40 % sure
-goalAltitude=-1
-sweetSpot=0.5
-# in cm
+#goalAltitude=-1
+#sweetSpot=0.5
+# Altitude adjustment is moved to MAVProxy module
 DESIRED_DISTANCE_Z = 200
 SWEETSPOT_Y = 0.5
 
@@ -68,9 +69,9 @@ class Regulator(object):
         else:
             # Set default value null
             sureness = None
-            raise Exception('det funkar INTE')
+            raise Exception('WARNING: Couldnt parse sureness, is now set to None')
         
-        print(sureness)
+        #print(sureness)
         # Scream for help, someone is drowning us in input
         if (len(groups) > 0):
             raise Exception('Invalid input sent to regulator, \
@@ -91,43 +92,11 @@ class Regulator(object):
     def regulateHeight(self, distance, ref):
         output = 0
         if(distance >= ref):
-            output = -0.47
-        elif(distance <= -ref :
-            output = 0.47
+            output = -50
+        elif(distance <= -ref) :
+            output = 50
         
         return output
-
-    def setalt(self, alt):
-        mavproxy.cmd_setalt([float(alt)])
-        print('setting alt')
-
-
-
-
-# Check if the altitude is good once a second, runs in a seperate thread
-def checkAlt():
-    global goalAltitude
-    global sweetSpot
-    while True:
-        time.sleep(0.5)
-        if goalAltitude != -1:
-            alt=float(mavproxy.mpstate.status.altitude)
-            if (abs(goalAltitude-alt)>sweetSpot):
-                if (alt < goalAltitude):
-                    print("Altitude too low, adjusting...")
-                    mavproxy.mpstate.functions.process_stdin("rc 3 1800")
-                elif (alt > goalAltitude):
-                    print("Altitude too high, adjusting...")
-                    mavproxy.mpstate.functions.process_stdin("rc 3 1200")
-        
-        
-def setalt(altitude):
-    global goalAltitude
-    #if (altitude < 0):
-    #    print("Altitude needs to be higher than 0")
-    #else:
-    goalAltitude=altitude
-    print("New altitude set")
 
     
 def median(list):
@@ -167,16 +136,13 @@ def getData(positionArray, anglesArray, timesArray):
         angle = [median(angX), median(angY), median(angZ)]
 
     if(timesArray):
-        deltaT = median(times)
+        deltaT = median(timesArray)
     
     return (position, angle, deltaT)
     
 def init():
     # While true read stdin
     regulator = Regulator()
-    
-    # SET ALTITUDE HERE.
-    setalt(2)
     
     oldPosition = None
     oldRegulatedX = 0
@@ -189,20 +155,17 @@ def init():
     
     startTime = time.time()
     
-    # COMPUTER CONTROL STARTS HERE, microcontroller no longer has any effect
+    # COMPUTER CONTROL STARTS HERE, microcontroller no longer has any effect on the channels which are in use
     
-    time.sleep(1)
+    time.sleep(7) # Wait for MAVProxy to parse 'alt' correctly from the APM
 
-    print("Altitude thread starting...")
-    t1 = threading.Thread(target=checkAlt)
-    t1.daemon = True
-    t1.start()
-    print("Altitude thread started")
-
-    time.sleep(1)
+    # SET ALTITUDE HERE.
+    mavproxy.mpstate.functions.process_stdin("startalt") # Initialize altitude-hold method in MAVProxy module
+    time.sleep(1) # Wait for it to get ready
+    mavproxy.mpstate.functions.process_stdin("setalt 2") # Set altitude to 2 meters
 
     mavproxy.mpstate.functions.process_stdin("hover") # Initialize by setting all sticks to middle and enter alt_hold mode
-    time.sleep(2) 
+    #time.sleep(1) 
 
     while True:
         try:
@@ -223,7 +186,7 @@ def init():
             if (oldPosition and len(positions) >= 3):
             
                 (position, angle, deltaT) = getData(positions, angles, times)
-        
+                ts=time.time() 
                 x = position[0]
                 y = position[1]
                 z = position[2]
@@ -233,44 +196,29 @@ def init():
                 deltaT = startTime - newTime
                 regulatedX = regulator.regulateDistance(x, lastX,
                                                         oldRegulatedX, 0, deltaT)
-                regulatedY = regulator.regulateHeight(y, lastY, SWEETSPOT_Y)
+                regulatedY = regulator.regulateHeight(y, SWEETSPOT_Y)
                 #Borde vara en konstant istället, alternativt en parameter in ttill programmet
                 regulatedZ = regulator.regulateDistance(z, lastZ,
                                                         oldRegulatedZ, DESIRED_DISTANCE_Z, deltaT)
-                print('X: {0}, Y: {1}, Z: {2}, S: {3}'.format(regulatedX, regulatedY, regulatedZ, sureness))
+                st = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')
+                print('[{4}]   X: {0}, Y: {1}, Z: {2}, S: {3}'.format(regulatedX, regulatedY, regulatedZ, sureness, st))
            
-                #Ändrat av Jacob: Håller inte alls med här, detta är vad en regulator är till för
-                #   Om det är små värden så visst, då kommer Quadcoptern röra sig lite/inte alls :)
-                # If the value is less than procentzone, do nothing
-                # This prevents the regulator from constantly correcting small changes
-                """
-                if abs(regulatedX) <= PROCENTZONE:
-                    mavproxy.cmd_strafe([0])
-                else:
-                    mavproxy.cmd_strafe([regulatedX])
 
-                if abs(regulatedZ) <= PROCENTZONE:
-                    mavproxy.cmd_movez([0])
-                else:
-                    mavproxy.cmd_movez([regulatedZ])
-                """
                 #Send data for X to the copter
                 mavproxy.mpstate.functions.process_stdin("strafe %d" % regulatedX)
                 #Send data for Y to the copter
-                mavproxy.mpstate.functions.process_stdin("movey %d" % regulatedY)
+                #mavproxy.mpstate.functions.process_stdin("movey %d" % regulatedY)
                 #Send data for Z to the copter
                 mavproxy.mpstate.functions.process_stdin("movez %d" % regulatedZ) 
-                
-                #Näää killar, va fan försöker ni med här!? :P
-                #positions=positions[-3:]
-                
+    
 
                 oldRegulatedX = regulatedX
                 oldRegulatedZ = regulatedZ
                 oldRegulatedY = regulatedY
-            else:
+            else: 
                 (position, angle, deltaT) = getData(positions, angles, times)
                 mavproxy.mpstate.functions.process_stdin("strafe 0")
+                #mavproxy.mpstate.functions.process_stdin("movey 0")
                 mavproxy.mpstate.functions.process_stdin("movez 0")
     
             #Clear any old data
@@ -282,10 +230,10 @@ def init():
             startTime = newTime
         except KeyboardInterrupt:
             # This happends when Ctrl-C is pressed
-            setalt(-1)
+            mavproxy.mpstate.functions.process_stdin("setalt -1") # Set altitude to -1 to disable altitude control            
             print("Giving control back to microcontroller...")
-            mavproxy.mpstate.functions.process_stdin("rc all 0")
-            mavproxy.mpstate.functions.process_stdin("mode stabilize")            
+            mavproxy.mpstate.functions.process_stdin("rc all 0") # Give back all control to controller
+            mavproxy.mpstate.functions.process_stdin("mode stabilize") # Set mode to stabilize 
             time.sleep(0.6)
             mavproxy.mpstate.functions.process_stdin("rc all 0")
             mavproxy.mpstate.functions.process_stdin("mode stabilize")            
