@@ -22,6 +22,10 @@ MIN_SURENESS = 0.4 #Don't use values if they are not more than 40 % sure
 # Altitude adjustment is moved to MAVProxy module
 DESIRED_DISTANCE_Z = 200
 SWEETSPOT_Y = 0.5
+#How many loops we want to use the old data
+VALUE_COUNTER_LOOPS = 10
+
+valueCounter = 0
 
 class Regulator(object):
     """Reads input from stream (standard implementation is meant for stdin)
@@ -37,7 +41,7 @@ class Regulator(object):
         self.lastPosition = [None, None, None]
 
         #Maximum allowed speed of the Quadcopter
-        self.boundary = 10
+        self.boundary = 20
 
     def toFloats(self, array):
         for index, s in enumerate(array):
@@ -184,7 +188,8 @@ def init():
             #If we have any values on "oldPosition" and we have
             #  at least three positions
             if (oldPosition and len(positions) >= 3):
-            
+                valueCounter = 0
+                
                 (position, angle, deltaT) = getData(positions, angles, times)
                 ts=time.time() 
                 x = position[0]
@@ -217,9 +222,14 @@ def init():
                 oldRegulatedY = regulatedY
             else: 
                 (position, angle, deltaT) = getData(positions, angles, times)
-                mavproxy.mpstate.functions.process_stdin("strafe 0")
-                #mavproxy.mpstate.functions.process_stdin("movey 0")
-                mavproxy.mpstate.functions.process_stdin("movez 0")
+                if(valueCounter > VALUE_COUNTER_LOOPS):
+                    valueCounter = 0
+                    mavproxy.mpstate.functions.process_stdin("strafe 0")
+                    mavproxy.mpstate.functions.process_stdin("movey 0")
+                    mavproxy.mpstate.functions.process_stdin("movez 0")
+                else:
+                    valueCounter += 1
+                    
     
             #Clear any old data
             positions = []
